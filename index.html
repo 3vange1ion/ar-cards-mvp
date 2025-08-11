@@ -1,79 +1,90 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <title>Variant Launch ThreeJS Example</title>
-
-    <!-- REPLACE WITH YOUR SDK KEY TAG FROM https://launchar.app -->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple AR Test</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+        }
+        
+        #canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 100;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            pointer-events: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        #status {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        button {
+            padding: 15px 30px;
+            font-size: 16px;
+            border: none;
+            border-radius: 5px;
+            background: #4CAF50;
+            color: white;
+            cursor: pointer;
+        }
+        
+        button:hover {
+            background: #45a049;
+        }
+        
+        #endButton {
+            background: #f44336;
+        }
+        
+        #endButton:hover {
+            background: #da190b;
+        }
+    </style>
+</head>
+<body>
+    <!-- Variant Launch SDK - Must be first -->
     <script src="https://launchar.app/sdk/v1?key=quA2KhV9HKKf4H9PUpcZPtX2jHDaPH92&redirect=true"></script>
-    <!-- / REPLACE WITH YOUR SDK KEY TAG FROM https://launchar.app -->
-
-    <!-- Add this temporary debug script -->
-<script>
-window.addEventListener('load', () => {
-    console.log('Page loaded');
-    console.log('navigator.xr exists:', !!navigator.xr);
-    console.log('Variant Launch loaded:', typeof window.VariantLaunch !== 'undefined');
     
-    // Add visible debug info on page
-    const debugDiv = document.createElement('div');
-    debugDiv.id = 'debug-info';
-    debugDiv.style.cssText = `
-        position: fixed; 
-        top: 0; 
-        right: 0; 
-        background: red; 
-        color: white; 
-        padding: 10px; 
-        font-size: 12px;
-        z-index: 1000;
-        max-width: 200px;
-    `;
+    <canvas id="canvas"></canvas>
     
-    debugDiv.innerHTML = `
-        <div>navigator.xr: ${!!navigator.xr}</div>
-        <div>VariantLaunch: ${typeof window.VariantLaunch !== 'undefined'}</div>
-        <div>UserAgent: ${navigator.userAgent.includes('iPhone') ? 'iPhone' : 'Other'}</div>
-    `;
-    
-    document.body.appendChild(debugDiv);
-});
-</script>
-
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;600;700&display=swap"
-      rel="stylesheet"
-    />
-    <meta charset="UTF-8" />
-    <link rel="icon" href="public/assets/favicon.ico" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
-    />
-  </head>
-  <body>
     <div id="overlay">
-      <div id="tracking-prompt"><img src="public/assets/hand.png" /></div>
-      <div id="instructions">Tap to grow</div>
+        <div id="ui">
+            <div id="status">Initializing...</div>
+            <button id="startButton">Start AR</button>
+            <button id="endButton" style="display: none;">End AR</button>
+        </div>
     </div>
-    <div id="app">
-      <a href="https://launch.variant3d.com"
-        ><img id="variant-logo" alt="WebXR on iOS" src="public/assets/favicon.ico"
-      /></a>
-      <h2>Variant Launch ThreeJS Example</h2>
-      <div id="ar-not-supported">
-        <p>
-          WebXR Not Supported. Open this page on iOS or Android to view the
-          example.
-        </p>
-        <p>
-          For documentation & support, visit
-          <a href="https://launch.variant3d.com/docs"
-            >https://launch.variant3d.com</a
-          >.
-        </p>
-        <img id="qr-code" />
-      </div>
-    </div>
-    <script type="module" src="src/main.js"></script>
-  </body>
+    
+    <!-- Main application script -->
+    <script type="module" src="./src/main.js"></script>
+</body>
 </html>
