@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>AR Card Games</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        #ar-canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            background: transparent;
+        }
+
+        #ui-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        #status {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 16px;
+            text-align: center;
+            backdrop-filter: blur(10px);
+            pointer-events: auto;
+        }
+
+        .ui-button {
+            pointer-events: auto;
+            background: rgba(102, 126, 234, 0.9);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 25px;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            min-width: 200px;
+        }
+
+        .ui-button:hover:not(:disabled) {
+            background: rgba(102, 126, 234, 1);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .ui-button:disabled {
+            background: rgba(128, 128, 128, 0.6);
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        #start-ar {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        #end-ar {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+            background: rgba(220, 53, 69, 0.9);
+        }
+
+        #end-ar:hover:not(:disabled) {
+            background: rgba(220, 53, 69, 1);
+        }
+
+        /* Loading animation */
+        .loading {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
+        }
+
+        /* Responsive design */
+        @media (max-width: 480px) {
+            #status {
+                font-size: 14px;
+                padding: 10px;
+            }
+            
+            .ui-button {
+                font-size: 16px;
+                padding: 12px 25px;
+                min-width: 180px;
+            }
+        }
+    </style>
+</head>
+<body>
+    
+    <canvas id="ar-canvas"></canvas>
+    
+    <div id="ui-overlay">
+        <div id="status">Initializing AR Card Games...</div>
+        <button id="start-ar" class="ui-button">
+            Start AR Experience
+        </button>
+        <button id="end-ar" class="ui-button">
+            End AR Session
+        </button>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+</body>
+</html>
