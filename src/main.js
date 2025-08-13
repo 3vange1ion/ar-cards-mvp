@@ -1,4 +1,4 @@
-// src/main.js - Simplified main application using base classes
+// src/main.js - Improved main application with better component loading
 import { terminal } from 'virtual:terminal';
 import * as THREE from 'three';
 
@@ -7,7 +7,7 @@ window.THREE = THREE;
 terminal.log('[Main] THREE.js import completed, version:', THREE.REVISION);
 
 /**
- * Main AR Application - Now simplified to coordinate between components
+ * Main AR Application - Now with improved component loading
  */
 class ARApp {
   constructor() {
@@ -37,18 +37,27 @@ class ARApp {
     if (!navigator.xr) {
       terminal.log('[ARApp] WebXR not available');
       this.updateStatus("WebXR not supported");
+      this.setupFallbackMode();
       return;
     }
     
-    const supported = await navigator.xr.isSessionSupported('immersive-ar');
-    terminal.log('[ARApp] AR session supported:', supported);
-    
-    if (!supported) {
-      this.updateStatus("AR not supported");
+    try {
+      const supported = await navigator.xr.isSessionSupported('immersive-ar');
+      terminal.log('[ARApp] AR session supported:', supported);
+      
+      if (!supported) {
+        this.updateStatus("AR not supported");
+        this.setupFallbackMode();
+        return;
+      }
+    } catch (error) {
+      terminal.log('[ARApp] Error checking AR support:', error.message);
+      this.updateStatus("Error checking AR support");
+      this.setupFallbackMode();
       return;
     }
     
-    // Wait for registry to be available
+    // Wait for components to be available
     await this.waitForComponents();
     
     // Set up event listeners
@@ -58,14 +67,28 @@ class ARApp {
     this.updateStatus("Ready - Select a game to begin");
   }
 
+  setupFallbackMode() {
+    terminal.log('[ARApp] Setting up fallback mode');
+    // Still wait for components and set up UI even without AR support
+    this.waitForComponents().then(() => {
+      this.setupEventListeners();
+      terminal.log('[ARApp] Fallback mode initialization complete');
+    });
+  }
+
   async waitForComponents() {
     terminal.log('[ARApp] Waiting for components to be available...');
     
     // Wait for GameRegistry to be available
     let attempts = 0;
-    while (!window.gameRegistry && attempts < 50) {
+    const maxAttempts = 100; // 10 seconds max wait
+    
+    while (!window.gameRegistry && attempts < maxAttempts) {
       await new Promise(resolve => setTimeout(resolve, 100));
       attempts++;
+      if (attempts % 10 === 0) {
+        terminal.log(`[ARApp] Still waiting for GameRegistry (${attempts * 100}ms)`);
+      }
     }
     
     if (window.gameRegistry) {
@@ -77,14 +100,29 @@ class ARApp {
     
     // Wait for ARGamePickerManager to be available
     attempts = 0;
-    while (!window.arGamePickerManager && attempts < 50) {
+    while (!window.arGamePickerManager && attempts < maxAttempts) {
       await new Promise(resolve => setTimeout(resolve, 100));
       attempts++;
+      if (attempts % 10 === 0) {
+        terminal.log(`[ARApp] Still waiting for ARGamePickerManager (${attempts * 100}ms)`);
+      }
     }
     
     if (window.arGamePickerManager) {
       this.arGamePickerManager = window.arGamePickerManager;
       terminal.log('[ARApp] ARGamePickerManager available');
+      
+      // Ensure it's initialized
+      if (!this.arGamePickerManager.isInitialized) {
+        terminal.log('[ARApp] ARGamePickerManager not initialized, attempting initialization');
+        const success = this.arGamePickerManager.init();
+        if (success) {
+          // Refresh the game list
+          setTimeout(() => {
+            this.arGamePickerManager.refresh();
+          }, 100);
+        }
+      }
     } else {
       terminal.log('[ARApp] ARGamePickerManager not available after waiting');
     }
@@ -94,8 +132,20 @@ class ARApp {
     terminal.log('[ARApp] Setting up event listeners');
     
     // Button event listeners
-    document.getElementById('startButton').addEventListener('click', () => this.startAR());
-    document.getElementById('endButton').addEventListener('click', () => this.endAR());
+    const startButton = document.getElementById('startButton');
+    const endButton = document.getElementById('endButton');
+    
+    if (startButton) {
+      startButton.addEventListener('click', () => this.startAR());
+    } else {
+      terminal.log('[ARApp] Start button not found');
+    }
+    
+    if (endButton) {
+      endButton.addEventListener('click', () => this.endAR());
+    } else {
+      terminal.log('[ARApp] End button not found');
+    }
     
     // Game registry event listeners
     window.addEventListener('gameSelected', (event) => this.onGameSelected(event));
@@ -112,15 +162,18 @@ class ARApp {
     const { game } = event.detail;
     const startButton = document.getElementById('startButton');
     
-    if (game.isPlayable) {
-      startButton.disabled = false;
-      startButton.textContent = `Start AR - ${game.name}`;
-      this.updateStatus(`Ready to start ${game.name}`);
-    } else {
-      startButton.disabled = true;
-      startButton.textContent = `${game.name} - Coming Soon`;
-      startButton.style.background = '#ff9800';
-      this.updateStatus(`${game.name} is coming soon`);
+    if (startButton) {
+      if (game.isPlayable) {
+        startButton.disabled = false;
+        startButton.textContent = `Start AR - ${game.name}`;
+        startButton.style.background = '#4CAF50';
+        this.updateStatus(`Ready to start ${game.name}`);
+      } else {
+        startButton.disabled = true;
+        startButton.textContent = `${game.name} - Coming Soon`;
+        startButton.style.background = '#ff9800';
+        this.updateStatus(`${game.name} is coming soon`);
+      }
     }
   }
 
@@ -136,8 +189,12 @@ class ARApp {
     this.updateStatus(`AR Active - ${event.detail.game.name}`);
     
     // Update UI for AR session
-    document.getElementById('startButton').style.display = 'none';
-    document.getElementById('endButton').style.display = 'block';
+    const startButton = document.getElementById('startButton');
+    const endButton = document.getElementById('endButton');
+    
+    if (startButton) startButton.style.display = 'none';
+    if (endButton) endButton.style.display = 'block';
+    
     document.body.classList.add('ar-active');
   }
 
@@ -148,14 +205,17 @@ class ARApp {
     this.currentGameInstance = null;
     
     // Reset UI
-    document.getElementById('startButton').style.display = 'block';
-    document.getElementById('endButton').style.display = 'none';
+    const startButton = document.getElementById('startButton');
+    const endButton = document.getElementById('endButton');
+    
+    if (startButton) startButton.style.display = 'block';
+    if (endButton) endButton.style.display = 'none';
+    
     document.body.classList.remove('ar-active');
     
     // Update start button based on current selection
     const selectedGame = this.gameRegistry ? this.gameRegistry.getSelectedGame() : null;
-    if (selectedGame) {
-      const startButton = document.getElementById('startButton');
+    if (selectedGame && startButton) {
       if (selectedGame.isPlayable) {
         startButton.disabled = false;
         startButton.textContent = `Start AR - ${selectedGame.name}`;
@@ -166,8 +226,7 @@ class ARApp {
         startButton.textContent = `${selectedGame.name} - Coming Soon`;
         startButton.style.background = '#ff9800';
       }
-    } else {
-      const startButton = document.getElementById('startButton');
+    } else if (startButton) {
       startButton.disabled = true;
       startButton.textContent = 'Start AR (Select a game first)';
       startButton.style.background = '#666';
@@ -224,7 +283,10 @@ class ARApp {
       this.updateStatus('Failed to start AR: ' + error.message);
       
       // Reset button state
-      document.getElementById('startButton').disabled = false;
+      const startButton = document.getElementById('startButton');
+      if (startButton) {
+        startButton.disabled = false;
+      }
     }
   }
 
@@ -265,6 +327,7 @@ class ARApp {
         isSessionActive: this.currentGameInstance.interface?.isActive
       } : null,
       registryDebug: this.gameRegistry ? this.gameRegistry.getDebugInfo() : null,
+      pickerDebug: this.arGamePickerManager ? this.arGamePickerManager.getDebugInfo() : null,
       componentsAvailable: {
         gameRegistry: !!this.gameRegistry,
         arGamePickerManager: !!this.arGamePickerManager
@@ -287,5 +350,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // Make debug info available globally
   window.getARAppDebug = () => window.arApp.getDebugInfo();
   
-  terminal.log('[Main] ARApp initialization complete');
+  terminal.log('[Main] ARApp initialization started');
+});
+
+// Also initialize on window load as backup
+window.addEventListener('load', () => {
+  if (!window.arApp) {
+    terminal.log('[Main] Window loaded, creating backup ARApp instance...');
+    window.arApp = new ARApp();
+    window.getARAppDebug = () => window.arApp.getDebugInfo();
+  }
 });

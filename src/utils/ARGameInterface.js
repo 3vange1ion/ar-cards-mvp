@@ -1,352 +1,260 @@
-// src/utils/ARGameInterface.js - Base AR Game Interface
+// src/utils/ARGameInterface.js - Base AR Game Interface Class
 import { terminal } from 'virtual:terminal';
 import * as THREE from 'three';
 
 /**
- * Abstract base class for all AR game interfaces
- * Handles WebXR session management and provides template for game-specific implementations
+ * Base AR Game Interface class - handles WebXR and THREE.js integration
  */
 export class ARGameInterface {
-  constructor(gameId, gameEngine = null) {
+  constructor(gameEngine, gameId) {
     terminal.log(`[ARGameInterface:${gameId}] Constructor called`);
     
-    this.gameId = gameId;
     this.gameEngine = gameEngine;
+    this.gameId = gameId;
+    this.isActive = false;
     
-    // WebXR session management
-    this.session = null;
-    this.referenceSpace = null;
-    this.hitTestSource = null;
-    
-    // THREE.js scene management
+    // WebXR components
+    this.xrSession = null;
+    this.renderer = null;
     this.scene = null;
     this.camera = null;
-    this.renderer = null;
     
-    // Interface state
-    this.isActive = false;
-    this.exitButton = null;
+    // Input handling
+    this.controller = null;
+    this.reticle = null;
     
-    // Input management
-    this.controller1 = null;
-    this.controller2 = null;
+    // Bind the observer method to preserve 'this' context
+    this.onGameStateChange = this.onGameStateChange.bind(this);
+    
+    // Connect to game engine
+    if (this.gameEngine && this.gameEngine.addObserver) {
+      this.gameEngine.addObserver(this.onGameStateChange);
+      terminal.log(`[ARGameInterface:${gameId}] Observer attached to game engine`);
+    } else {
+      terminal.log(`[ARGameInterface:${gameId}] Warning: Game engine does not support observers`);
+    }
     
     terminal.log(`[ARGameInterface:${gameId}] Interface initialized`);
+  }
+
+  /**
+   * Initialize the AR interface and start WebXR session
+   */
+  async initialize() {
+    terminal.log(`[ARGameInterface:${this.gameId}] Initializing AR interface`);
     
-    // Set up observer for game engine if provided
-    if (this.gameEngine) {
-      this.gameEngine.addObserver(this.onGameStateChange.bind(this));
-      terminal.log(`[ARGameInterface:${gameId}] Observer attached to game engine`);
-    }
-  }
-
-  // ==================== ABSTRACT METHODS (Must be implemented by subclasses) ====================
-
-  /**
-   * Create game-specific 3D objects and add them to the scene
-   */
-  createGameObjects() {
-    throw new Error('ARGameInterface.createGameObjects() must be implemented by subclass');
-  }
-
-  /**
-   * Handle game-specific user interactions
-   * @param {string} interactionType - Type of interaction (tap, drag, select, etc.)
-   * @param {Object} data - Interaction data (position, target, etc.)
-   */
-  handleGameInteraction(interactionType, data) {
-    throw new Error('ARGameInterface.handleGameInteraction() must be implemented by subclass');
-  }
-
-  /**
-   * Update game-specific visualizations based on state changes
-   * @param {Object} gameEvent - Game state change event data
-   */
-  updateGameVisualization(gameEvent) {
-    throw new Error('ARGameInterface.updateGameVisualization() must be implemented by subclass');
-  }
-
-  // ==================== CONCRETE METHODS (Session Management) ====================
-
-  /**
-   * Initialize the AR session and scene
-   * @param {Object} sessionConfig - WebXR session configuration
-   */
-  async initialize(sessionConfig = {}) {
     try {
-      terminal.log(`[ARGameInterface:${this.gameId}] Initialize called`);
-      
       // Check WebXR support
       if (!navigator.xr) {
         throw new Error('WebXR not supported');
       }
-      
-      const isSupported = await navigator.xr.isSessionSupported('immersive-ar');
-      if (!isSupported) {
-        throw new Error('AR not supported on this device');
+
+      const supported = await navigator.xr.isSessionSupported('immersive-ar');
+      if (!supported) {
+        throw new Error('AR not supported');
       }
-      
-      terminal.log(`[ARGameInterface:${this.gameId}] Starting AR session...`);
-      
-      // Create WebXR session
-      const defaultConfig = {
-        requiredFeatures: ['local'],
-        optionalFeatures: ['hit-test', 'dom-overlay'],
-        domOverlay: { root: document.getElementById('overlay') }
-      };
-      
-      const config = { ...defaultConfig, ...sessionConfig };
-      this.session = await navigator.xr.requestSession('immersive-ar', config);
-      
-      terminal.log(`[ARGameInterface:${this.gameId}] AR session created`);
-      
-      // Set up session event listeners
-      this.session.addEventListener('end', this.onSessionEnded.bind(this));
-      this.session.addEventListener('select', this.onSelect.bind(this));
-      
-      // Get reference space
-      this.referenceSpace = await this.session.requestReferenceSpace('local');
-      
-      // Set up scene
+
+      // Create THREE.js components
+      this.setupRenderer();
       this.setupScene();
-      
-      // Set up hit testing
-      await this.setupHitTesting();
-      
-      // Set up controllers
-      this.setupControllers();
-      
-      // Create exit button
-      this.createExitButton();
-      
-      // Create game-specific objects
-      this.createGameObjects();
-      
-      // Configure renderer for WebXR
-      this.renderer.xr.enabled = true;
-      this.renderer.xr.setReferenceSpaceType('local');
-      await this.renderer.xr.setSession(this.session);
-      
-      // Start render loop
-      this.renderer.setAnimationLoop(this.render.bind(this));
+      this.setupCamera();
+
+      // Request AR session
+      terminal.log(`[ARGameInterface:${this.gameId}] Requesting AR session`);
+      this.xrSession = await navigator.xr.requestSession('immersive-ar', {
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: ['dom-overlay'],
+        domOverlay: { root: document.body }
+      });
+
+      // Configure session
+      await this.setupXRSession();
       
       this.isActive = true;
-      terminal.log(`[ARGameInterface:${this.gameId}] AR session fully initialized`);
-      
-      // Hide game picker interface
-      if (window.arGamePickerManager) {
-        window.arGamePickerManager.hideInterface();
-      }
+      terminal.log(`[ARGameInterface:${this.gameId}] AR session initialized successfully`);
       
       return true;
       
     } catch (error) {
-      terminal.log(`[ARGameInterface:${this.gameId}] Initialization failed:`, error.message);
-      console.error('AR initialization failed:', error);
-      throw error;
+      terminal.log(`[ARGameInterface:${this.gameId}] Failed to initialize AR:`, error.message);
+      console.error('AR initialization error:', error);
+      return false;
     }
   }
 
   /**
-   * Set up the THREE.js scene
+   * Set up THREE.js renderer
+   */
+  setupRenderer() {
+    const canvas = document.getElementById('canvas');
+    this.renderer = new THREE.WebGLRenderer({
+      canvas: canvas,
+      antialias: true,
+      alpha: true
+    });
+    
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.xr.enabled = true;
+    
+    terminal.log(`[ARGameInterface:${this.gameId}] Renderer created`);
+  }
+
+  /**
+   * Set up THREE.js scene
    */
   setupScene() {
-    terminal.log(`[ARGameInterface:${this.gameId}] Setting up scene`);
-    
-    // Create fresh scene
     this.scene = new THREE.Scene();
     
-    // Create camera
-    this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
-    
-    // Get existing renderer or create new one
-    const canvas = document.getElementById('canvas');
-    if (!this.renderer) {
-      this.renderer = new THREE.WebGLRenderer({ 
-        canvas: canvas,
-        antialias: true,
-        alpha: true 
-      });
-      this.renderer.setSize(window.innerWidth, window.innerHeight);
-      this.renderer.setPixelRatio(window.devicePixelRatio);
-    }
-    
     // Add basic lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
     this.scene.add(ambientLight);
     
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
     directionalLight.position.set(1, 1, 1);
     this.scene.add(directionalLight);
     
-    terminal.log(`[ARGameInterface:${this.gameId}] Scene setup complete`);
+    terminal.log(`[ARGameInterface:${this.gameId}] Scene created`);
   }
 
   /**
-   * Set up hit testing for AR interactions
+   * Set up THREE.js camera
    */
-  async setupHitTesting() {
-    terminal.log(`[ARGameInterface:${this.gameId}] Setting up hit testing`);
+  setupCamera() {
+    this.camera = new THREE.PerspectiveCamera(
+      75,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      1000
+    );
     
-    if (this.session.requestHitTestSource) {
-      try {
-        const viewerSpace = await this.session.requestReferenceSpace('viewer');
-        this.hitTestSource = await this.session.requestHitTestSource({ space: viewerSpace });
-        terminal.log(`[ARGameInterface:${this.gameId}] Hit test source created`);
-      } catch (error) {
-        terminal.log(`[ARGameInterface:${this.gameId}] Hit testing setup failed:`, error.message);
+    terminal.log(`[ARGameInterface:${this.gameId}] Camera created`);
+  }
+
+  /**
+   * Configure WebXR session
+   */
+  async setupXRSession() {
+    terminal.log(`[ARGameInterface:${this.gameId}] Setting up XR session`);
+    
+    // Set up renderer for XR
+    this.renderer.xr.setSession(this.xrSession);
+    
+    // Create reticle for hit testing
+    this.createReticle();
+    
+    // Set up input controller
+    this.setupController();
+    
+    // Handle session end
+    this.xrSession.addEventListener('end', () => {
+      terminal.log(`[ARGameInterface:${this.gameId}] XR session ended`);
+      this.handleSessionEnd();
+    });
+    
+    // Start render loop
+    this.renderer.setAnimationLoop((timestamp, frame) => {
+      this.onXRFrame(timestamp, frame);
+    });
+    
+    terminal.log(`[ARGameInterface:${this.gameId}] XR session configured`);
+  }
+
+  /**
+   * Create reticle for surface detection
+   */
+  createReticle() {
+    const geometry = new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2);
+    const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    
+    this.reticle = new THREE.Mesh(geometry, material);
+    this.reticle.matrixAutoUpdate = false;
+    this.reticle.visible = false;
+    this.scene.add(this.reticle);
+    
+    terminal.log(`[ARGameInterface:${this.gameId}] Reticle created`);
+  }
+
+  /**
+   * Set up XR input controller
+   */
+  setupController() {
+    this.controller = this.renderer.xr.getController(0);
+    this.controller.addEventListener('select', (event) => {
+      this.onSelect(event);
+    });
+    this.scene.add(this.controller);
+    
+    terminal.log(`[ARGameInterface:${this.gameId}] Controller set up`);
+  }
+
+  /**
+   * Handle XR frame updates
+   */
+  onXRFrame(timestamp, frame) {
+    if (!this.xrSession) return;
+    
+    // Update game engine
+    if (this.gameEngine && this.gameEngine.update) {
+      const deltaTime = timestamp - (this.lastFrameTime || timestamp);
+      this.gameEngine.update(deltaTime);
+      this.lastFrameTime = timestamp;
+    }
+    
+    // Handle hit testing for reticle
+    const referenceSpace = this.renderer.xr.getReferenceSpace();
+    const viewerSpace = this.renderer.xr.getSession().requestReferenceSpace('viewer');
+    
+    if (frame.getHitTestResults && this.hitTestSource) {
+      const hitTestResults = frame.getHitTestResults(this.hitTestSource);
+      
+      if (hitTestResults.length > 0) {
+        const hit = hitTestResults[0];
+        this.reticle.visible = true;
+        this.reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
+      } else {
+        this.reticle.visible = false;
       }
     }
   }
 
   /**
-   * Set up WebXR controllers
-   */
-  setupControllers() {
-    terminal.log(`[ARGameInterface:${this.gameId}] Setting up controllers`);
-    
-    this.controller1 = this.renderer.xr.getController(0);
-    this.controller1.addEventListener('select', this.onSelect.bind(this));
-    this.scene.add(this.controller1);
-    
-    this.controller2 = this.renderer.xr.getController(1);
-    this.controller2.addEventListener('select', this.onSelect.bind(this));
-    this.scene.add(this.controller2);
-    
-    terminal.log(`[ARGameInterface:${this.gameId}] Controllers setup complete`);
-  }
-
-  /**
-   * Create the exit button UI element
-   */
-  createExitButton() {
-    terminal.log(`[ARGameInterface:${this.gameId}] Creating exit button`);
-    
-    // Create exit button in 3D space
-    const buttonGeometry = new THREE.PlaneGeometry(0.1, 0.1);
-    const buttonMaterial = new THREE.MeshBasicMaterial({ 
-      color: 0xff4444,
-      transparent: true,
-      opacity: 0.8,
-      side: THREE.DoubleSide
-    });
-    
-    this.exitButton = new THREE.Mesh(buttonGeometry, buttonMaterial);
-    this.exitButton.position.set(0.8, 0.8, -1); // Top right relative to user
-    this.exitButton.userData = { isExitButton: true };
-    
-    // Add X text
-    const loader = new THREE.FontLoader();
-    // For simplicity, we'll use a simple geometry instead of text
-    const xGeometry = new THREE.RingGeometry(0.02, 0.03, 8);
-    const xMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const xMesh = new THREE.Mesh(xGeometry, xMaterial);
-    xMesh.position.z = 0.001;
-    this.exitButton.add(xMesh);
-    
-    this.scene.add(this.exitButton);
-    
-    terminal.log(`[ARGameInterface:${this.gameId}] Exit button created`);
-  }
-
-  /**
-   * Main render loop
-   * @param {number} time - Current time
-   * @param {XRFrame} frame - WebXR frame
-   */
-  render(time, frame) {
-    if (!this.isActive) return;
-    
-    // Update hit testing
-    this.updateHitTesting(frame);
-    
-    // Call game-specific render updates
-    this.onRender(time, frame);
-    
-    // Render the scene
-    this.renderer.render(this.scene, this.camera);
-    
-    // Log every 120 frames to track render loop
-    if (frame && frame.session.requestId % 120 === 0) {
-      terminal.log(`[ARGameInterface:${this.gameId}] Render loop active, frame:`, frame.session.requestId);
-    }
-  }
-
-  /**
-   * Update hit testing (can be overridden by subclasses)
-   * @param {XRFrame} frame - Current WebXR frame
-   */
-  updateHitTesting(frame) {
-    // Default implementation - subclasses can override
-    if (frame && this.hitTestSource) {
-      const hitTestResults = frame.getHitTestResults(this.hitTestSource);
-      // Store hit test results for game-specific use
-      this.currentHitTestResults = hitTestResults;
-    }
-  }
-
-  /**
-   * Called on each render frame (can be overridden by subclasses)
-   * @param {number} time - Current time
-   * @param {XRFrame} frame - WebXR frame
-   */
-  onRender(time, frame) {
-    // Default implementation - subclasses can override for custom render logic
-  }
-
-  /**
-   * Handle select events (tap/click in AR)
-   * @param {XRInputSourceEvent} event - WebXR select event
+   * Handle controller select events (tap/click)
    */
   onSelect(event) {
-    terminal.log(`[ARGameInterface:${this.gameId}] Select event received`);
+    terminal.log(`[ARGameInterface:${this.gameId}] Select event triggered`);
     
-    // Check if exit button was tapped
-    if (this.checkExitButtonTap(event)) {
-      this.endSession();
-      return;
+    if (this.reticle.visible && this.gameEngine) {
+      // Get position from reticle
+      const position = new THREE.Vector3();
+      position.setFromMatrixPosition(this.reticle.matrix);
+      
+      // Send tap input to game engine
+      this.gameEngine.handleInput('tap', {
+        position: {
+          x: position.x,
+          y: position.y,
+          z: position.z
+        }
+      });
     }
-    
-    // Handle game-specific interactions
-    this.handleGameInteraction('select', {
-      event,
-      hitTestResults: this.currentHitTestResults,
-      session: this.session,
-      referenceSpace: this.referenceSpace
-    });
   }
 
   /**
-   * Check if the exit button was tapped
-   * @param {XRInputSourceEvent} event - Select event
-   * @returns {boolean} - Whether exit button was tapped
+   * Handle game engine state changes
    */
-  checkExitButtonTap(event) {
-    // Simple distance-based check for exit button tap
-    // In a more sophisticated implementation, you'd use raycasting
-    if (!this.exitButton) return false;
+  onGameStateChange(event, data) {
+    terminal.log(`[ARGameInterface:${this.gameId}] Game state changed:`, event);
     
-    // For now, we'll implement a simple check
-    // This would need proper raycasting in a production implementation
-    const inputSource = event.inputSource;
-    if (inputSource && inputSource.gamepad) {
-      // Simple implementation - assumes tap on exit button if in top-right area
-      // Real implementation would use raycasting
-      return false; // Placeholder
-    }
-    
-    return false;
+    // Call the visualization update method
+    this.updateVisualization(event, data);
   }
 
   /**
-   * Handle game state changes from the game engine
-   * @param {Object} gameEvent - Game state change event
+   * Update visualization based on game events - override in subclasses
    */
-  onGameStateChange(gameEvent) {
-    terminal.log(`[ARGameInterface:${this.gameId}] Game state changed:`, gameEvent.eventType);
-    
-    // Update game-specific visualizations
-    this.updateGameVisualization(gameEvent);
+  updateVisualization(event, data) {
+    terminal.log(`[ARGameInterface:${this.gameId}] Updating visualization for event:`, event);
+    // Override in subclasses for game-specific visualization
   }
 
   /**
@@ -355,68 +263,87 @@ export class ARGameInterface {
   endSession() {
     terminal.log(`[ARGameInterface:${this.gameId}] Ending AR session`);
     
-    if (this.session) {
-      this.session.end();
+    if (this.xrSession) {
+      this.xrSession.end();
+    } else {
+      this.handleSessionEnd();
     }
   }
 
   /**
-   * Handle session end
+   * Handle session end cleanup
    */
-  onSessionEnded() {
-    terminal.log(`[ARGameInterface:${this.gameId}] Session ended`);
+  handleSessionEnd() {
+    terminal.log(`[ARGameInterface:${this.gameId}] Handling session end`);
     
     this.isActive = false;
-    this.session = null;
-    this.hitTestSource = null;
-    this.renderer.setAnimationLoop(null);
+    this.xrSession = null;
     
-    // Clean up scene
-    if (this.scene) {
-      // Dispose of geometries and materials
-      this.scene.traverse((object) => {
-        if (object.geometry) {
-          object.geometry.dispose();
-        }
-        if (object.material) {
-          if (Array.isArray(object.material)) {
-            object.material.forEach(material => material.dispose());
-          } else {
-            object.material.dispose();
-          }
-        }
-      });
+    if (this.renderer) {
+      this.renderer.setAnimationLoop(null);
+      this.renderer.xr.setSession(null);
     }
     
-    // Show game picker interface
-    if (window.arGamePickerManager) {
-      window.arGamePickerManager.showInterface();
+    // Clean up scene objects
+    if (this.reticle) {
+      this.scene.remove(this.reticle);
+      this.reticle = null;
+    }
+    
+    if (this.controller) {
+      this.scene.remove(this.controller);
+      this.controller = null;
     }
     
     terminal.log(`[ARGameInterface:${this.gameId}] Session cleanup complete`);
   }
 
   /**
-   * Clean up the interface
+   * Clean up resources
    */
   cleanup() {
-    terminal.log(`[ARGameInterface:${this.gameId}] Cleanup called`);
+    terminal.log(`[ARGameInterface:${this.gameId}] Cleaning up interface`);
     
-    if (this.isActive) {
-      this.endSession();
-    }
+    this.endSession();
     
     // Remove observer from game engine
-    if (this.gameEngine) {
-      this.gameEngine.removeObserver(this.onGameStateChange.bind(this));
+    if (this.gameEngine && this.gameEngine.removeObserver) {
+      this.gameEngine.removeObserver(this.onGameStateChange);
     }
     
-    this.gameEngine = null;
-    this.scene = null;
+    // Clean up THREE.js resources
+    if (this.scene) {
+      this.scene.clear();
+      this.scene = null;
+    }
+    
+    if (this.renderer) {
+      this.renderer.dispose();
+      this.renderer = null;
+    }
+    
     this.camera = null;
     
-    terminal.log(`[ARGameInterface:${this.gameId}] Cleanup complete`);
+    terminal.log(`[ARGameInterface:${this.gameId}] Interface cleanup complete`);
+  }
+
+  /**
+   * Get debug information about the interface
+   */
+  getDebugInfo() {
+    return {
+      gameId: this.gameId,
+      isActive: this.isActive,
+      hasSession: !!this.xrSession,
+      hasRenderer: !!this.renderer,
+      hasScene: !!this.scene,
+      hasCamera: !!this.camera,
+      hasGameEngine: !!this.gameEngine
+    };
   }
 }
+
+// Make available globally for debugging
+window.ARGameInterface = ARGameInterface;
 
 export default ARGameInterface;

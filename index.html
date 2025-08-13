@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Card Games</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+        }
+        
+        #canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 100;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            pointer-events: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        #status {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        /* Game Selection Interface */
+        #gameSelectionPanel {
+            background: rgba(0, 0, 0, 0.9);
+            border-radius: 10px;
+            padding: 20px;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        
+        #gameSelectionPanel h2 {
+            margin-top: 0;
+            text-align: center;
+            color: #4CAF50;
+        }
+        
+        .game-option {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            margin: 10px 0;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+        
+        .game-option:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+        
+        .game-option.selected {
+            border-color: #4CAF50;
+            background: rgba(76, 175, 80, 0.2);
+        }
+        
+        .game-option.disabled {
+            opacity: 0.6;
+            cursor: default;
+        }
+        
+        .game-option.disabled:hover {
+            transform: none;
+        }
+        
+        .game-icon {
+            width: 50px;
+            height: 50px;
+            background: #4CAF50;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 15px;
+            font-size: 24px;
+        }
+        
+        .game-icon.disabled {
+            background: #666;
+        }
+        
+        .game-info h3 {
+            margin: 0 0 5px 0;
+            font-size: 18px;
+        }
+        
+        .game-info p {
+            margin: 0;
+            font-size: 14px;
+            color: #ccc;
+        }
+        
+        .game-meta {
+            margin-left: auto;
+            text-align: right;
+            font-size: 12px;
+            color: #999;
+        }
+        
+        .coming-soon {
+            color: #ff9800;
+            font-weight: bold;
+            font-size: 10px;
+        }
+        
+        button {
+            padding: 15px 30px;
+            font-size: 16px;
+            border: none;
+            border-radius: 5px;
+            background: #4CAF50;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        button:hover:not(:disabled) {
+            background: #45a049;
+            transform: translateY(-1px);
+        }
+        
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        
+        #endButton {
+            background: #f44336;
+        }
+        
+        #endButton:hover {
+            background: #da190b;
+        }
+        
+        /* Hidden state for AR session */
+        .ar-active #gameSelectionPanel {
+            display: none;
+        }
+        
+        /* AR Exit Button Styles */
+        .ar-exit-button {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 50px;
+            height: 50px;
+            background: rgba(244, 67, 54, 0.9);
+            border: none;
+            border-radius: 50%;
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            z-index: 200;
+            pointer-events: auto;
+        }
+        
+        .ar-exit-button:hover {
+            background: rgba(244, 67, 54, 1);
+            transform: scale(1.1);
+        }
+        
+        .ar-active .ar-exit-button {
+            display: flex;
+        }
+        
+        /* Loading indicator */
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #fff;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 8px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Debug panel */
+        #debugPanel {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            max-width: 300px;
+            display: none;
+        }
+        
+        #debugToggle {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            padding: 5px 10px;
+            font-size: 12px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <!-- Variant Launch SDK - Must be first -->
+    <script src="https://launchar.app/sdk/v1?key=quA2KhV9HKKf4H9PUpcZPtX2jHDaPH92&redirect=true"></script>
+    
+    <canvas id="canvas"></canvas>
+    
+    <div id="overlay">
+        <div id="ui">
+            <div id="status">Initializing...</div>
+            
+            <!-- Game Selection Panel -->
+            <div id="gameSelectionPanel">
+                <h2>Select a Game</h2>
+                <div id="gameList">
+                    <!-- Games will be populated here by GameRegistry -->
+                </div>
+            </div>
+            
+            <button id="startButton" disabled>Start AR (Select a game first)</button>
+            <button id="endButton" style="display: none;">End AR</button>
+        </div>
+        
+        <!-- AR Exit Button (shown only during AR session) -->
+        <button class="ar-exit-button" id="arExitButton" title="Exit AR Session">×</button>
+        
+        <!-- Debug Panel -->
+        <div id="debugPanel">
+            <div id="debugContent"></div>
+        </div>
+        <button id="debugToggle">Debug</button>
+    </div>
+    
+    <!-- Base Classes (load first) -->
+    <script type="module" src="./src/utils/GameEngine.js"></script>
+    <script type="module" src="./src/utils/ARGameInterface.js"></script>
+    
+    <!-- Game Implementations -->
+    <script type="module" src="./src/games/SimpleARGame.js"></script>
+    
+    <!-- Registry and Management (load after base classes) -->
+    <script type="module" src="./src/utils/GameRegistry.js"></script>
+    <script type="module" src="./src/management/ARGamePickerManager.js"></script>
+    
+    <!-- Main application script (load last) -->
+    <script type="module" src="./src/main.js"></script>
+    
+    <!-- Debug functionality -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const debugToggle = document.getElementById('debugToggle');
+            const debugPanel = document.getElementById('debugPanel');
+            const debugContent = document.getElementById('debugContent');
+            const arExitButton = document.getElementById('arExitButton');
+            
+            let debugVisible = false;
+            
+            // Debug panel toggle
+            debugToggle.addEventListener('click', () => {
+                debugVisible = !debugVisible;
+                debugPanel.style.display = debugVisible ? 'block' : 'none';
+                
+                if (debugVisible && window.getARAppDebug) {
+                    updateDebugInfo();
+                }
+            });
+            
+            // Update debug info
+            function updateDebugInfo() {
+                if (!window.getARAppDebug || !debugVisible) return;
+                
+                const debugInfo = window.getARAppDebug();
+                debugContent.innerHTML = `
+                    <h4>AR App Debug</h4>
+                    <p><strong>AR Active:</strong> ${debugInfo.isARActive}</p>
+                    <p><strong>Current Game:</strong> ${debugInfo.currentGameInstance ? debugInfo.currentGameInstance.gameId : 'None'}</p>
+                    <p><strong>Session Active:</strong> ${debugInfo.currentGameInstance?.isSessionActive || false}</p>
+                    <h4>Registry Debug</h4>
+                    <p><strong>Total Games:</strong> ${debugInfo.registryDebug.totalGames}</p>
+                    <p><strong>Selected:</strong> ${debugInfo.registryDebug.selectedGameId || 'None'}</p>
+                    <p><strong>Active Game:</strong> ${debugInfo.registryDebug.activeGame?.gameId || 'None'}</p>
+                `;
+            }
+            
+            // Update debug info every 2 seconds when visible
+            setInterval(() => {
+                if (debugVisible) updateDebugInfo();
+            }, 2000);
+            
+            // AR Exit button functionality
+            arExitButton.addEventListener('click', () => {
+                if (window.arApp) {
+                    window.arApp.endAR();
+                }
+            });
+            
+            // Listen for AR session events to show/hide exit button
+            window.addEventListener('gameSessionStarted', () => {
+                document.body.classList.add('ar-active');
+            });
+            
+            window.addEventListener('gameSessionEnded', () => {
+                document.body.classList.remove('ar-active');
+            });
+        });
+    </script>
+</body>
+</html>

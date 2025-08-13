@@ -1,4 +1,4 @@
-// src/utils/ARGamePickerManager.js - Fixed version without circular dependencies
+// src/utils/ARGamePickerManager.js - Fixed version
 import { terminal } from 'virtual:terminal';
 
 class ARGamePickerManager {
@@ -11,13 +11,15 @@ class ARGamePickerManager {
     this.selectedGameId = null;
     this.isInitialized = false;
     
-    // Don't initialize immediately - wait for DOM
+    // Bind methods to preserve 'this' context
+    this.handleGameSelection = this.handleGameSelection.bind(this);
+    this.init = this.init.bind(this);
   }
 
   init() {
     if (this.isInitialized) {
       terminal.log('[ARGamePickerManager] Already initialized, skipping');
-      return;
+      return true;
     }
     
     terminal.log('[ARGamePickerManager] init() called');
@@ -29,6 +31,11 @@ class ARGamePickerManager {
     
     if (!this.gameListElement || !this.startButton || !this.gameSelectionPanel) {
       terminal.log('[ARGamePickerManager] Required DOM elements not found, deferring initialization');
+      terminal.log('[ARGamePickerManager] Elements found:', {
+        gameList: !!this.gameListElement,
+        startButton: !!this.startButton,
+        gameSelectionPanel: !!this.gameSelectionPanel
+      });
       return false;
     }
     
@@ -46,9 +53,7 @@ class ARGamePickerManager {
     terminal.log('[ARGamePickerManager] Setting up event listeners...');
     
     // Listen for game selection events from registry
-    window.addEventListener('gameSelected', (event) => {
-      this.handleGameSelection(event.detail);
-    });
+    window.addEventListener('gameSelected', this.handleGameSelection);
     
     terminal.log('[ARGamePickerManager] Event listeners setup complete');
   }
@@ -61,21 +66,37 @@ class ARGamePickerManager {
       return;
     }
     
-    // Get games from registry - use global reference to avoid circular import
-    const games = window.gameRegistry ? window.gameRegistry.getAvailableGames() : [];
-    
-    terminal.log(`[ARGamePickerManager] Found ${games.length} games to display`);
+    // Get games from registry - wait for it to be available
+    let games = [];
+    if (window.gameRegistry) {
+      games = window.gameRegistry.getAvailableGames();
+      terminal.log(`[ARGamePickerManager] Found ${games.length} games from registry`);
+    } else {
+      terminal.log('[ARGamePickerManager] Game registry not available yet');
+      // Retry in a moment
+      setTimeout(() => {
+        if (!this.isInitialized) return;
+        this.populateGameList();
+      }, 500);
+      return;
+    }
     
     // Clear existing content
     this.gameListElement.innerHTML = '';
     
+    if (games.length === 0) {
+      terminal.log('[ARGamePickerManager] No games available to display');
+      this.gameListElement.innerHTML = '<div style="text-align: center; color: #999;">No games available</div>';
+      return;
+    }
+
     games.forEach(game => {
-      terminal.log(`[ARGamePickerManager] Creating element for game: ${game.name}`);
+      terminal.log(`[ARGamePickerManager] Creating element for game: ${game.name} (playable: ${game.isPlayable})`);
       const gameElement = this.createGameElement(game);
       this.gameListElement.appendChild(gameElement);
     });
     
-    terminal.log('[ARGamePickerManager] Game list populated');
+    terminal.log('[ARGamePickerManager] Game list populated with', games.length, 'games');
   }
 
   createGameElement(game) {
@@ -86,8 +107,11 @@ class ARGamePickerManager {
     // Add click handler for playable games
     if (game.isPlayable) {
       gameDiv.addEventListener('click', () => {
+        terminal.log(`[ARGamePickerManager] Game clicked: ${game.id}`);
         this.selectGame(game.id);
       });
+    } else {
+      terminal.log(`[ARGamePickerManager] Game ${game.id} is not playable, no click handler added`);
     }
     
     gameDiv.innerHTML = `
@@ -121,10 +145,10 @@ class ARGamePickerManager {
   selectGame(gameId) {
     terminal.log(`[ARGamePickerManager] Selecting game: ${gameId}`);
     
-    // Update visual selection
+    // Update visual selection first
     this.updateGameSelection(gameId);
     
-    // Update registry selection - use global reference
+    // Update registry selection
     if (window.gameRegistry) {
       const success = window.gameRegistry.selectGame(gameId);
       if (success) {
@@ -139,10 +163,13 @@ class ARGamePickerManager {
   }
 
   updateGameSelection(gameId) {
+    if (!this.gameListElement) return;
+    
     // Remove previous selection
     const previouslySelected = this.gameListElement.querySelector('.game-option.selected');
     if (previouslySelected) {
       previouslySelected.classList.remove('selected');
+      terminal.log('[ARGamePickerManager] Removed previous selection');
     }
     
     // Add selection to new game
@@ -153,10 +180,10 @@ class ARGamePickerManager {
     }
   }
 
-  handleGameSelection(selectionData) {
-    terminal.log('[ARGamePickerManager] Handling game selection event:', selectionData.gameId);
+  handleGameSelection(event) {
+    terminal.log('[ARGamePickerManager] Handling game selection event:', event.detail.gameId);
     
-    const { gameId, game } = selectionData;
+    const { gameId, game } = event.detail;
     
     // Update start button state
     if (this.startButton) {
@@ -164,10 +191,12 @@ class ARGamePickerManager {
         this.startButton.disabled = false;
         this.startButton.textContent = `Start AR - ${game.name}`;
         this.startButton.style.background = '#4CAF50';
+        terminal.log(`[ARGamePickerManager] Start button enabled for: ${game.name}`);
       } else {
         this.startButton.disabled = true;
         this.startButton.textContent = `${game.name} - Coming Soon`;
         this.startButton.style.background = '#ff9800';
+        terminal.log(`[ARGamePickerManager] Start button disabled for: ${game.name}`);
       }
     }
     
@@ -200,9 +229,23 @@ class ARGamePickerManager {
   getSelectedGameId() {
     return this.selectedGameId;
   }
+
+  // Debug method
+  getDebugInfo() {
+    return {
+      isInitialized: this.isInitialized,
+      selectedGameId: this.selectedGameId,
+      elementsFound: {
+        gameListElement: !!this.gameListElement,
+        startButton: !!this.startButton,
+        gameSelectionPanel: !!this.gameSelectionPanel
+      },
+      gameRegistryAvailable: !!window.gameRegistry
+    };
+  }
 }
 
-// Create singleton instance but don't initialize yet
+// Create singleton instance
 export const arGamePickerManager = new ARGamePickerManager();
 
 // Make available globally for debugging
@@ -212,16 +255,34 @@ window.arGamePickerManager = arGamePickerManager;
 document.addEventListener('DOMContentLoaded', () => {
   terminal.log('[ARGamePickerManager] DOM loaded, attempting initialization');
   
-  // Try to initialize, retry if needed
+  // Try to initialize with retries
   const tryInit = () => {
     const success = arGamePickerManager.init();
     if (!success) {
-      terminal.log('[ARGamePickerManager] Initialization failed, retrying in 100ms');
-      setTimeout(tryInit, 100);
+      terminal.log('[ARGamePickerManager] Initialization failed, retrying in 250ms');
+      setTimeout(tryInit, 250);
+    } else {
+      terminal.log('[ARGamePickerManager] Initialization successful');
+      // Populate games after a short delay to ensure registry is ready
+      setTimeout(() => {
+        arGamePickerManager.refresh();
+      }, 100);
     }
   };
   
-  tryInit();
+  // Start initialization with a small delay to ensure other modules are loaded
+  setTimeout(tryInit, 100);
+});
+
+// Also try to initialize when the window loads (backup)
+window.addEventListener('load', () => {
+  if (!arGamePickerManager.isInitialized) {
+    terminal.log('[ARGamePickerManager] Window loaded, attempting backup initialization');
+    arGamePickerManager.init();
+    setTimeout(() => {
+      arGamePickerManager.refresh();
+    }, 100);
+  }
 });
 
 terminal.log('[ARGamePickerManager] Module loaded and singleton created');

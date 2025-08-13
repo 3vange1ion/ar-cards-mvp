@@ -1,172 +1,36 @@
-// src/utils/GameEngine.js - Base Game Engine Interface
+// src/utils/GameEngine.js - Base Game Engine Class
 import { terminal } from 'virtual:terminal';
 
 /**
- * Abstract base class for all game engines
- * Handles pure game logic without any AR/visual dependencies
- * Should be text-based and work in a terminal environment
+ * Base Game Engine class - provides core game functionality
  */
 export class GameEngine {
   constructor(gameId) {
     terminal.log(`[GameEngine:${gameId}] Constructor called`);
     
     this.gameId = gameId;
-    this.gameState = 'initialized';
-    this.observers = new Set();
-    this.players = [];
-    this.currentPlayer = null;
-    this.gameData = {};
+    this.state = 'initialized';
+    this.players = new Map();
+    this.observers = [];
+    this.lastUpdateTime = 0;
+    this.isRunning = false;
     
-    terminal.log(`[GameEngine:${gameId}] Engine initialized with state:`, this.gameState);
-  }
-
-  // ==================== ABSTRACT METHODS (Must be implemented by subclasses) ====================
-  
-  /**
-   * Initialize the game with specific settings
-   * @param {Object} config - Game-specific configuration
-   */
-  initializeGame(config = {}) {
-    throw new Error('GameEngine.initializeGame() must be implemented by subclass');
+    terminal.log(`[GameEngine:${gameId}] Engine initialized with state:`, this.state);
   }
 
   /**
-   * Process a game action from a player
-   * @param {string} playerId - ID of the player making the action
-   * @param {string} action - The action type
-   * @param {Object} data - Action-specific data
-   * @returns {boolean} - Whether the action was valid and processed
-   */
-  processAction(playerId, action, data) {
-    throw new Error('GameEngine.processAction() must be implemented by subclass');
-  }
-
-  /**
-   * Check if the game has ended and return winner info
-   * @returns {Object|null} - Winner information or null if game continues
-   */
-  checkGameEnd() {
-    throw new Error('GameEngine.checkGameEnd() must be implemented by subclass');
-  }
-
-  /**
-   * Get the current valid actions for a player
-   * @param {string} playerId - ID of the player
-   * @returns {Array} - Array of valid actions
-   */
-  getValidActions(playerId) {
-    throw new Error('GameEngine.getValidActions() must be implemented by subclass');
-  }
-
-  /**
-   * Serialize the current game state for saving/transmission
-   * @returns {Object} - Serializable game state
-   */
-  serializeState() {
-    throw new Error('GameEngine.serializeState() must be implemented by subclass');
-  }
-
-  /**
-   * Restore game state from serialized data
-   * @param {Object} serializedState - Previously serialized state
-   */
-  deserializeState(serializedState) {
-    throw new Error('GameEngine.deserializeState() must be implemented by subclass');
-  }
-
-  // ==================== CONCRETE METHODS (Available to all subclasses) ====================
-
-  /**
-   * Add a player to the game
-   * @param {string} playerId - Unique player identifier
-   * @param {Object} playerData - Player information
-   */
-  addPlayer(playerId, playerData = {}) {
-    terminal.log(`[GameEngine:${this.gameId}] Adding player:`, playerId);
-    
-    if (this.players.find(p => p.id === playerId)) {
-      terminal.log(`[GameEngine:${this.gameId}] Player ${playerId} already exists`);
-      return false;
-    }
-
-    const player = {
-      id: playerId,
-      ...playerData,
-      joinedAt: Date.now()
-    };
-
-    this.players.push(player);
-    this.notifyObservers('playerAdded', { playerId, player });
-    
-    terminal.log(`[GameEngine:${this.gameId}] Player added. Total players:`, this.players.length);
-    return true;
-  }
-
-  /**
-   * Remove a player from the game
-   * @param {string} playerId - Player to remove
-   */
-  removePlayer(playerId) {
-    terminal.log(`[GameEngine:${this.gameId}] Removing player:`, playerId);
-    
-    const playerIndex = this.players.findIndex(p => p.id === playerId);
-    if (playerIndex === -1) {
-      terminal.log(`[GameEngine:${this.gameId}] Player ${playerId} not found`);
-      return false;
-    }
-
-    const player = this.players.splice(playerIndex, 1)[0];
-    this.notifyObservers('playerRemoved', { playerId, player });
-    
-    terminal.log(`[GameEngine:${this.gameId}] Player removed. Remaining players:`, this.players.length);
-    return true;
-  }
-
-  /**
-   * Get current game state information
-   * @returns {Object} - Current state information
-   */
-  getGameState() {
-    return {
-      gameId: this.gameId,
-      state: this.gameState,
-      players: this.players,
-      currentPlayer: this.currentPlayer,
-      gameData: this.gameData
-    };
-  }
-
-  /**
-   * Set the current game state
-   * @param {string} newState - New state to set
-   * @param {Object} additionalData - Additional state data
-   */
-  setState(newState, additionalData = {}) {
-    const previousState = this.gameState;
-    this.gameState = newState;
-    
-    terminal.log(`[GameEngine:${this.gameId}] State changed: ${previousState} -> ${newState}`);
-    
-    this.notifyObservers('stateChanged', { 
-      previousState, 
-      newState, 
-      ...additionalData 
-    });
-  }
-
-  // ==================== OBSERVER PATTERN IMPLEMENTATION ====================
-
-  /**
-   * Add an observer to receive game state updates
-   * @param {Function} observer - Function to call on state changes
+   * Add an observer to listen for game events
+   * @param {Function} observer - Function to call when events occur
    */
   addObserver(observer) {
     if (typeof observer !== 'function') {
-      throw new Error('Observer must be a function');
+      terminal.log(`[GameEngine:${this.gameId}] Invalid observer - must be a function`);
+      return false;
     }
     
-    this.observers.add(observer);
-    terminal.log(`[GameEngine:${this.gameId}] Observer added. Total observers:`, this.observers.size);
+    this.observers.push(observer);
+    terminal.log(`[GameEngine:${this.gameId}] Observer added. Total observers:`, this.observers.length);
+    return true;
   }
 
   /**
@@ -174,29 +38,26 @@ export class GameEngine {
    * @param {Function} observer - Observer function to remove
    */
   removeObserver(observer) {
-    this.observers.delete(observer);
-    terminal.log(`[GameEngine:${this.gameId}] Observer removed. Total observers:`, this.observers.size);
+    const index = this.observers.indexOf(observer);
+    if (index > -1) {
+      this.observers.splice(index, 1);
+      terminal.log(`[GameEngine:${this.gameId}] Observer removed. Total observers:`, this.observers.length);
+      return true;
+    }
+    return false;
   }
 
   /**
-   * Notify all observers of a state change
-   * @param {string} eventType - Type of event that occurred
+   * Notify all observers of an event
+   * @param {string} event - Event type
    * @param {Object} data - Event data
    */
-  notifyObservers(eventType, data = {}) {
-    const eventData = {
-      gameId: this.gameId,
-      eventType,
-      timestamp: Date.now(),
-      gameState: this.gameState,
-      ...data
-    };
-
-    terminal.log(`[GameEngine:${this.gameId}] Notifying ${this.observers.size} observers of event:`, eventType);
-
+  notifyObservers(event, data = {}) {
+    terminal.log(`[GameEngine:${this.gameId}] Notifying ${this.observers.length} observers of event:`, event);
+    
     this.observers.forEach(observer => {
       try {
-        observer(eventData);
+        observer(event, { ...data, gameId: this.gameId });
       } catch (error) {
         terminal.log(`[GameEngine:${this.gameId}] Observer error:`, error.message);
         console.error('Observer error:', error);
@@ -204,63 +65,177 @@ export class GameEngine {
     });
   }
 
-  // ==================== UTILITY METHODS ====================
+  /**
+   * Add a player to the game
+   * @param {string} playerId - Unique player identifier
+   * @param {Object} playerData - Player data
+   */
+  addPlayer(playerId, playerData = {}) {
+    const player = {
+      id: playerId,
+      joinedAt: Date.now(),
+      ...playerData
+    };
+    
+    this.players.set(playerId, player);
+    terminal.log(`[GameEngine:${this.gameId}] Player added. Total players:`, this.players.size);
+    
+    this.notifyObservers('playerAdded', { playerId, player });
+    return player;
+  }
 
   /**
-   * Validate that the game is in a specific state
-   * @param {string|Array} expectedStates - Expected state(s)
-   * @returns {boolean} - Whether game is in expected state
+   * Remove a player from the game
+   * @param {string} playerId - Player identifier
    */
-  validateState(expectedStates) {
-    const states = Array.isArray(expectedStates) ? expectedStates : [expectedStates];
-    return states.includes(this.gameState);
+  removePlayer(playerId) {
+    const player = this.players.get(playerId);
+    if (!player) {
+      terminal.log(`[GameEngine:${this.gameId}] Player not found for removal:`, playerId);
+      return false;
+    }
+    
+    this.players.delete(playerId);
+    terminal.log(`[GameEngine:${this.gameId}] Player removed. Total players:`, this.players.size);
+    
+    this.notifyObservers('playerRemoved', { playerId, player });
+    return true;
   }
 
   /**
    * Get a player by ID
-   * @param {string} playerId - Player ID to find
-   * @returns {Object|null} - Player object or null if not found
+   * @param {string} playerId - Player identifier
    */
   getPlayer(playerId) {
-    return this.players.find(p => p.id === playerId) || null;
+    return this.players.get(playerId) || null;
   }
 
   /**
-   * Check if a player exists in the game
-   * @param {string} playerId - Player ID to check
-   * @returns {boolean} - Whether player exists
+   * Get all players
    */
-  hasPlayer(playerId) {
-    return this.players.some(p => p.id === playerId);
+  getPlayers() {
+    return Array.from(this.players.values());
   }
 
   /**
-   * Get the next player in turn order
-   * @param {string} currentPlayerId - Current player ID
-   * @returns {Object|null} - Next player or null if not found
+   * Set the game state
+   * @param {string} newState - New state
    */
-  getNextPlayer(currentPlayerId) {
-    const currentIndex = this.players.findIndex(p => p.id === currentPlayerId);
-    if (currentIndex === -1) return null;
+  setState(newState) {
+    const oldState = this.state;
+    this.state = newState;
     
-    const nextIndex = (currentIndex + 1) % this.players.length;
-    return this.players[nextIndex];
+    terminal.log(`[GameEngine:${this.gameId}] State changed: ${oldState} -> ${newState}`);
+    this.notifyObservers('stateChanged', { oldState, newState, state: newState });
   }
 
   /**
-   * Clean up the game engine
+   * Get the current game state
+   */
+  getState() {
+    return this.state;
+  }
+
+  /**
+   * Start the game loop
+   */
+  start() {
+    if (this.isRunning) {
+      terminal.log(`[GameEngine:${this.gameId}] Game is already running`);
+      return;
+    }
+    
+    this.isRunning = true;
+    this.lastUpdateTime = performance.now();
+    this.setState('running');
+    
+    terminal.log(`[GameEngine:${this.gameId}] Game started`);
+    this.notifyObservers('gameStarted', {});
+    
+    // Start the update loop
+    this.gameLoop();
+  }
+
+  /**
+   * Stop the game
+   */
+  stop() {
+    if (!this.isRunning) {
+      terminal.log(`[GameEngine:${this.gameId}] Game is not running`);
+      return;
+    }
+    
+    this.isRunning = false;
+    this.setState('stopped');
+    
+    terminal.log(`[GameEngine:${this.gameId}] Game stopped`);
+    this.notifyObservers('gameStopped', {});
+  }
+
+  /**
+   * Game loop - calls update at regular intervals
+   */
+  gameLoop() {
+    if (!this.isRunning) return;
+    
+    const currentTime = performance.now();
+    const deltaTime = currentTime - this.lastUpdateTime;
+    this.lastUpdateTime = currentTime;
+    
+    // Call the update method
+    this.update(deltaTime);
+    
+    // Schedule next frame
+    requestAnimationFrame(() => this.gameLoop());
+  }
+
+  /**
+   * Update game state - override in subclasses
+   * @param {number} deltaTime - Time since last update in milliseconds
+   */
+  update(deltaTime) {
+    // Default implementation - override in subclasses
+  }
+
+  /**
+   * Handle input - override in subclasses
+   * @param {string} inputType - Type of input
+   * @param {Object} data - Input data
+   */
+  handleInput(inputType, data = {}) {
+    terminal.log(`[GameEngine:${this.gameId}] Input received:`, inputType, data);
+    // Override in subclasses
+  }
+
+  /**
+   * Clean up resources
    */
   cleanup() {
-    terminal.log(`[GameEngine:${this.gameId}] Cleanup called`);
+    terminal.log(`[GameEngine:${this.gameId}] Cleaning up engine`);
     
-    this.observers.clear();
-    this.players = [];
-    this.currentPlayer = null;
-    this.gameData = {};
-    this.setState('cleanup');
+    this.stop();
+    this.observers = [];
+    this.players.clear();
     
-    terminal.log(`[GameEngine:${this.gameId}] Cleanup completed`);
+    this.notifyObservers('cleanup', {});
+  }
+
+  /**
+   * Get debug information about the engine
+   */
+  getDebugInfo() {
+    return {
+      gameId: this.gameId,
+      state: this.state,
+      isRunning: this.isRunning,
+      playerCount: this.players.size,
+      observerCount: this.observers.length,
+      players: Array.from(this.players.keys())
+    };
   }
 }
+
+// Make available globally for debugging
+window.GameEngine = GameEngine;
 
 export default GameEngine;
